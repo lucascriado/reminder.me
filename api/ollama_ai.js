@@ -1,9 +1,3 @@
-// api/ai_parser.js
-
-/* =========================
-   Helpers ISO / validações
-========================= */
-
 function toIsoWithTZ(date, tz = "-03:00") {
   const yyyy = date.getFullYear();
   const MM = String(date.getMonth() + 1).padStart(2, "0");
@@ -30,24 +24,16 @@ function safeFixEnd(startIso, endIso, tzOffset) {
   return endIso;
 }
 
-/* =========================
-   Normalização PT-BR
-========================= */
-
 function normalizePtDateTime(text) {
   let t = String(text || "");
 
-  // "17hrs", "17 hr" => "17h"
   t = t.replace(/\b(\d{1,2})\s*hrs?\b/gi, "$1h");
   t = t.replace(/\b(\d{1,2})\s*hr\b/gi, "$1h");
 
-  // "17h30" / "17h 30" => "17:30"
   t = t.replace(/\b(\d{1,2})\s*h\s*(\d{2})\b/gi, "$1:$2");
 
-  // "às 17" / "as 17" => "às 17h"
   t = t.replace(/\b(às|as)\s*(\d{1,2})\b(?!\s*[:h])/gi, "$1 $2h");
 
-  // "17" sozinho no fim e tem pista de data ("hoje", "amanhã", "sexta") => "17h"
   if (/\b(hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|dia)\b/i.test(t)) {
     t = t.replace(/\b(\d{1,2})\b(?!\s*[:h]|\s*\/|\s*-)/g, (m, hh) => {
       const n = Number(hh);
@@ -59,11 +45,6 @@ function normalizePtDateTime(text) {
   return t;
 }
 
-/* =========================
-   Extração determinística de data
-========================= */
-
-// weekday: 0 dom ... 6 sáb
 function getWeekdayFromTextPt(text) {
   const t = (text || "").toLowerCase();
   const map = [
@@ -88,7 +69,6 @@ function hasAmanha(text) {
   return /\bamanh[aã]\b/i.test(text || "");
 }
 
-// data explícita: 20/02, 20-02, 20/02/2026, 20-02-26
 function getExplicitDMY(text) {
   const t = text || "";
   const m = t.match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/);
@@ -103,7 +83,6 @@ function getExplicitDMY(text) {
   return { dd, MM, yyyy };
 }
 
-// hora explícita: "17h", "17:30"
 function getExplicitTime(text) {
   const t = (text || "").toLowerCase();
   let m = t.match(/\b(\d{1,2})\s*h\b/);          // 17h
@@ -121,7 +100,6 @@ function addDays(d, days) {
   return x;
 }
 
-// escolhe a próxima ocorrência do weekday a partir de baseDate (inclui esta semana)
 function nextWeekdayFrom(baseDate, targetDow) {
   const base = new Date(baseDate);
   const baseDow = base.getDay();
@@ -129,7 +107,6 @@ function nextWeekdayFrom(baseDate, targetDow) {
   return addDays(base, delta);
 }
 
-// aplica override de data mantendo a hora do start original (ou hora explícita do texto)
 function applyDeterministicDateOverrides(userText, baseDate, ev, tzOffset) {
   const text = userText || "";
   const normalized = normalizePtDateTime(text);
@@ -138,12 +115,10 @@ function applyDeterministicDateOverrides(userText, baseDate, ev, tzOffset) {
   const end0 = parseIsoOrThrow(ev.end);
   const durationMs = Math.max(60 * 60 * 1000, end0.getTime() - start0.getTime());
 
-  // hora: prioriza a hora explícita do texto; se não tiver, usa a do start vindo da IA
   const explicitTime = getExplicitTime(normalized);
   const hh = explicitTime ? explicitTime.hh : start0.getHours();
   const mm = explicitTime ? explicitTime.mm : start0.getMinutes();
 
-  // 1) data explícita dd/mm(/aaaa) vence tudo
   const explicit = getExplicitDMY(normalized);
   if (explicit) {
     const yyyy = explicit.yyyy ?? baseDate.getFullYear();
@@ -154,12 +129,10 @@ function applyDeterministicDateOverrides(userText, baseDate, ev, tzOffset) {
     return ev;
   }
 
-  // 2) hoje / amanhã
   if (hasHoje(normalized) || hasAmanha(normalized)) {
     const target = hasAmanha(normalized) ? addDays(baseDate, 1) : new Date(baseDate);
     const fixedStart = new Date(target.getFullYear(), target.getMonth(), target.getDate(), hh, mm, 0, 0);
 
-    // se for "hoje" mas hora já passou, joga pra amanhã automaticamente (mais útil)
     if (hasHoje(normalized)) {
       const now = new Date(baseDate);
       if (fixedStart.getTime() <= now.getTime()) {
@@ -174,13 +147,11 @@ function applyDeterministicDateOverrides(userText, baseDate, ev, tzOffset) {
     return ev;
   }
 
-  // 3) dia da semana ("sexta", "quarta"...)
   const dow = getWeekdayFromTextPt(normalized);
   if (dow !== null) {
     const target = nextWeekdayFrom(baseDate, dow);
     const fixedStart = new Date(target.getFullYear(), target.getMonth(), target.getDate(), hh, mm, 0, 0);
 
-    // se cair no mesmo dia e a hora já passou, joga +7 dias
     const baseDow = new Date(baseDate).getDay();
     if (dow === baseDow && fixedStart.getTime() <= new Date(baseDate).getTime()) {
       const nextWeek = addDays(target, 7);
@@ -193,13 +164,8 @@ function applyDeterministicDateOverrides(userText, baseDate, ev, tzOffset) {
     return ev;
   }
 
-  // 4) sem pistas -> mantém o que a IA deu
   return ev;
 }
-
-/* =========================
-   Ollama
-========================= */
 
 async function ollamaChat({ model, messages, host }) {
   const url = `${host}/api/chat`;
@@ -247,10 +213,6 @@ function buildPrompt(userText, baseDateISO, timezone, tzOffset) {
   ];
 }
 
-/* =========================
-   Main
-========================= */
-
 async function parseEventFromText(userText, opts = {}) {
   const timezone = opts.timezone || "America/Sao_Paulo";
   const tzOffset = opts.tzOffset || "-03:00";
@@ -259,7 +221,6 @@ async function parseEventFromText(userText, opts = {}) {
   const host = opts.ollamaHost || "http://localhost:11434";
   const model = opts.model || "llama3.1";
 
-  // normaliza texto (ajuda a IA e ajuda nossos regex)
   const normalizedText = normalizePtDateTime(userText);
 
   const baseDateISO = toIsoWithTZ(baseDate, tzOffset);
@@ -280,20 +241,15 @@ async function parseEventFromText(userText, opts = {}) {
     if (!(k in ev)) throw new Error(`json incompleto (faltou "${k}").`);
   }
 
-  // força timezone controlado por você
   ev.timezone = timezone;
 
-  // valida datas antes de corrigir
   parseIsoOrThrow(ev.start);
   parseIsoOrThrow(ev.end);
 
-  // ✅ correções determinísticas (sexta/hoje/amanhã/data explícita)
   ev = applyDeterministicDateOverrides(normalizedText, baseDate, ev, tzOffset);
 
-  // ✅ garante end > start
   ev.end = safeFixEnd(ev.start, ev.end, tzOffset);
 
-  // sanitiza strings
   ev.title = String(ev.title || "").trim() || "Lembrete";
   ev.location = String(ev.location || "").trim();
   ev.notes = String(ev.notes || "").trim();
