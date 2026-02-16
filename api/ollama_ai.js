@@ -219,7 +219,7 @@ async function parseEventFromText(userText, opts = {}) {
   const baseDate = opts.baseDate || new Date();
 
   const host = opts.ollamaHost || "http://localhost:11434";
-  const model = opts.model || "llama3.1";
+  const model = opts.model || "phi3:mini";
 
   const normalizedText = normalizePtDateTime(userText);
 
