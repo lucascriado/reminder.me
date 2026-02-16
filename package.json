@@ -1,7 +1,7 @@
 {
   "name": "bot-remind-me",
   "version": "1.0.0",
-  "description": "",
+  "description": "Bot de lembretes integrado ao WhatsApp que interpreta mensagens em linguagem natural e cria automaticamente eventos no Google Calendar.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -23,7 +23,9 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "chrono-node": "^2.9.0",
+    "cookie-parser": "^1.4.7",
     "dotenv": "^17.3.1",
+    "express": "^5.2.1",
     "googleapis": "^171.4.0",
     "openai": "^6.22.0",
     "pino": "^10.3.1",
